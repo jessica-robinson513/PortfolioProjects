@@ -1,0 +1,85 @@
+SELECT main.studentid, main.degree, main.campus, main.sex, main.age, main.enrollmentstatus, main.startdate, 
+			main.enddate, main.BIPOC, grades.Lesson_Planning_High_Grade, grades.Classroom_Culture_High_Grade, 
+			grades.Instruction_High_Grade, grades.Assessing_Student_Learning_High_Grade, satisfaction.Satisfaction_Instruction, 
+			satisfaction.Satisfaction_SchoolsOps, satisfaction.Satisfaction_Tuition, satisfaction.Satisfaction_Community
+FROM
+	(
+	SELECT DISTINCT em.studentid, sf.degree, sf.campus, sf.sex, sf.age,
+			ef.enrollmentstatus, ef.startdate, ef.enddate, CASE
+				WHEN ethnicity = 'Hispanic/Latinx' AND race <> 'White' THEN race
+				WHEN ethnicity = 'Hispanic/Latinx' AND race = 'White' THEN ethnicity
+				WHEN race = 'White' THEN 'No'
+				WHEN race = 'Black' THEN 'Black'
+				WHEN race = 'Asian' THEN 'Asian'
+				WHEN race = 'Alaska Native' THEN 'Alaska Native'
+				WHEN race = 'American Indian' THEN 'American Indian'
+				WHEN race = 'Pacific Islander' THEN 'Pacific Islander'
+				ELSE 'Unknown'
+				END AS BIPOC
+	FROM StudentFact sf
+			JOIN EnrollmentFact ef ON sf.studentid = ef.studentid 
+			JOIN QuestionResponseFact qrf ON qrf.studentid = sf.studentid
+			JOIN QuestionDimension qd ON qd.questionid = qrf.questionid
+			JOIN ResponseDimension rd ON rd.responseid = qrf.responseid 
+			JOIN (
+		SELECT studentid, MAX(enrollmentid) AS Most_recent_enrollmentid
+		FROM EnrollmentFact 
+		GROUP BY studentid
+		) em ON em.studentid = sf.studentid AND em.Most_recent_enrollmentid = ef.enrollmentid
+	--ORDER BY em.studentid
+	) AS main
+		JOIN
+	(SELECT studentid, MAX(Lesson_Planning_High_Grade) AS Lesson_Planning_High_Grade,
+					MAX(Classroom_Culture_High_Grade) AS Classroom_Culture_High_Grade,
+					MAX(Instruction_High_Grade) AS Instruction_High_Grade,
+					MAX(Assessing_Student_Learning_High_Grade) AS Assessing_Student_Learning_High_Grade 
+	FROM
+	(
+	SELECT sf.studentid, CASE
+		WHEN cgf.courseid = 1 THEN cgf.coursegrade
+		END AS Lesson_Planning_High_Grade,
+	 CASE
+		WHEN cgf.courseid = 2 THEN cgf.coursegrade
+		END AS Classroom_Culture_High_Grade, 
+	 CASE
+		WHEN cgf.courseid = 3 THEN cgf.coursegrade
+		END AS Instruction_High_Grade,
+	 CASE
+		WHEN cgf.courseid = 4 THEN cgf.coursegrade
+		END AS Assessing_Student_Learning_High_Grade 
+	FROM StudentFact sf
+		JOIN CourseGradeFact cgf ON cgf.studentid = sf.studentid
+		JOIN CourseDimension cd ON cd.courseid = cgf.courseid 
+		) S
+	GROUP BY studentid
+	--ORDER BY studentid
+	) AS grades
+		ON grades.studentid = main.studentid
+		JOIN 
+	(SELECT studentid, MAX(Satisfaction_instruction) AS Satisfaction_Instruction, 
+					MAX(Satisfaction_SchoolOps) AS Satisfaction_SchoolsOps, 
+					MAX(Satisfaction_Tuition) AS Satisfaction_Tuition, 
+					MAX(Satisfaction_Community) AS Satisfaction_Community
+	FROM
+	(
+	SELECT qrf.studentid, CASE
+		WHEN qd.questionid = 1 THEN rd.response
+		END AS Satisfaction_Instruction,
+	 CASE
+		WHEN qd.questionid = 2 THEN rd.response
+		END AS Satisfaction_SchoolOps,
+	 CASE 
+		WHEN qd.questionid = 3 THEN rd.response
+		END AS Satisfaction_Tuition,
+	 CASE
+		WHEN qd.questionid = 4 THEN rd.response
+		END AS Satisfaction_Community
+	FROM QuestionResponseFact qrf 
+			JOIN QuestionDimension qd ON qd.questionid = qrf.questionid
+			JOIN ResponseDimension rd ON rd.responseid = qrf.responseid
+	) S
+	GROUP BY studentid
+	--ORDER BY studentid
+	) AS satisfaction
+	ON satisfaction.studentid = grades.studentid
+ORDER BY main.studentid
